@@ -1,0 +1,129 @@
+#!/usr/bin/env -S java --source 11
+
+import static java.lang.System.*;
+import java.io.IOException;
+import java.nio.file.*;
+import java.util.*;
+import java.util.regex.Pattern;
+
+public class aws_profile {
+    static final boolean DELETE_BACKUP_FILE = true;
+    static final int ERROR_CODE = 1;
+    static final int SUCCESS_CODE = 0;
+
+    static final Path AWS_CONFIG_PATH = Paths.get(getenv("HOME") + "/.aws/config");
+    static final Path BACKUP_AWS_CONFIG_PATH = Paths.get(getenv("HOME") + "/.aws/config.backup." + currentTimeMillis());
+    static final Pattern PROFILE_PATTERN = Pattern.compile("^#?\\s*\\[profile\\s+([^\\]]+)\\]$");
+
+    public static void main(String[] args) {
+        if (args.length != 1) {
+            usage();
+            exit(ERROR_CODE);
+        }
+
+        var returnCode = SUCCESS_CODE;
+        try {
+            createBackupAwsConfigFile();
+
+            var profile = args[0];
+            var lines = readAwsConfigFile();
+            var newLines = updateDefaultProfile(lines, profile);
+            writeAwsConfigFile(newLines);
+        } catch (Exception e) {
+            err.printf("Something went wrong! %s%n", e.getMessage());
+            returnCode = ERROR_CODE;
+
+            try {
+                rollbackAwsConfigFile();
+            } catch (IOException ex) {
+                err.println("Unable to rollback aws config file!");
+                returnCode = ERROR_CODE;
+            }
+        } finally {
+            try {
+                cleanupBackupAwsConfigFile();
+            } catch (IOException e) {
+                err.println("Unable to cleanup aws config backup file!");
+                returnCode = ERROR_CODE;
+            }
+        }
+
+        exit(returnCode);
+    }
+
+    static void usage() {
+        err.println("Usage: aws_profile <profile>");
+    }
+
+    static void createBackupAwsConfigFile() throws IOException {
+        Files.copy(AWS_CONFIG_PATH, BACKUP_AWS_CONFIG_PATH);
+    }
+
+    static List<String> readAwsConfigFile() throws IOException {
+        return Files.readAllLines(AWS_CONFIG_PATH);
+    }
+
+    static List<String> updateDefaultProfile(List<String> lines, String newDefaultProfile) {
+        var foundNewDefaultProfile = false;
+        var newLines = new ArrayList<String>();
+
+        for (var i=0; i< lines.size(); i++) {
+            var line = lines.get(i).trim();
+            var newLine = line;
+
+            if (line.equals("[default]")) {
+                i++;
+                var nextLine = lines.get(i).trim();
+                var profileName = getProfileNameFromLine(nextLine, i);
+
+                if (profileName.equals(newDefaultProfile)) {
+                    foundNewDefaultProfile = true;
+                    newLine = String.format("%s%n%s", line, nextLine);
+                } else {
+                    newLine = String.format("[profile %s]", profileName);
+                }
+            } else if (line.startsWith("[profile ")) {
+                var profileName = getProfileNameFromLine(line, i);
+
+                if (profileName.equals(newDefaultProfile)) {
+                    foundNewDefaultProfile = true;
+                    newLine = String.format("[default]%n# [profile %s]", profileName);
+                }
+            }
+
+            newLines.add(newLine);
+        }
+
+        if (!foundNewDefaultProfile) {
+            throw new RuntimeException(String.format("Unable to find profile '%s' in config file.", newDefaultProfile));
+        }
+
+        return newLines;
+    }
+
+    static String getProfileNameFromLine(String line, int lineNumber) {
+        var matcher = PROFILE_PATTERN.matcher(line);
+
+        if (!matcher.matches()) {
+            throw new RuntimeException(
+                    String.format("Invalid config file. Error on line %d. Expected '%s' to contain a profile name.",
+                    lineNumber, line));
+        }
+
+        return matcher.group(1);
+    }
+
+    static void writeAwsConfigFile(List<String> lines) throws IOException {
+        Files.write(AWS_CONFIG_PATH, lines);
+    }
+
+    static void rollbackAwsConfigFile() throws IOException {
+        Files.copy(BACKUP_AWS_CONFIG_PATH, AWS_CONFIG_PATH, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    static void cleanupBackupAwsConfigFile() throws IOException {
+        if (DELETE_BACKUP_FILE) {
+            Files.delete(BACKUP_AWS_CONFIG_PATH);
+        }
+    }
+}
