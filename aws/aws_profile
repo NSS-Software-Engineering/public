@@ -53,6 +53,21 @@ public class aws_profile {
 
     static void usage() {
         err.println("Usage: aws_profile <profile>");
+        try {
+            var lines = readAwsConfigFile();
+            for (var i=0; i< lines.size(); i++) {
+                var line = lines.get(i).trim();
+
+                if (line.equals("[default]")) {
+                    i++;
+                    var nextLine = lines.get(i).trim();
+                    var profileName = getProfileNameFromLine(nextLine, i);
+                    err.println("Current profile: " + profileName);
+                }
+            }
+        } catch (IOException e) {
+            // do nothing
+        }
     }
 
     static void createBackupAwsConfigFile() throws IOException {
