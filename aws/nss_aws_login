@@ -41,7 +41,7 @@ echo "## Step 3: make $profile_name the default profile"
 
 ssh_cache_file=$(find ~/.aws/sso/cache -maxdepth 1 -type f -name "[0-9]*.json" -exec grep -l accessToken {} \;)
 if [ -z "$ssh_cache_file" ]; then
-  echo "ERROR: Cannot find SSO file - have you run 'aws sso login --profile $profile_name' first?"
+  echo "ERROR: Cannot find SSO file."
   exit 1
 fi
 
@@ -70,13 +70,11 @@ aws configure set region $region
 
 token=$(cat $ssh_cache_file | jq -r '.accessToken')
 
-# if credentials have expired (e.g. overnight) this commmand will fail, thus the check here
 echo "## Getting SSO role credentials"
-
-credentials=$(aws sso get-role-credentials --role-name $role_name --account-id $account_id --access-token $token --region $region)
+credentials=$(aws sso get-role-credentials --role-name $role_name --account-id $account_id --access-token $token)
 if [ -z "$credentials" ]; then
   echo
-  echo "ERROR: Have you run 'aws sso login --profile $profile_name' first?"
+  echo "ERROR: Unable to get SSO role credentials."
   exit 1
 fi
 
